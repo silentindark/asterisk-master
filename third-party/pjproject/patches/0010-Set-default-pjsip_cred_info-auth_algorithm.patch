@@ -1,0 +1,202 @@
+From c24463bf8ea0950443f3bbede2f47e30779cad57 Mon Sep 17 00:00:00 2001
+From: George Joseph <gjoseph@sangoma.com>
+Date: Wed, 4 Dec 2024 06:46:53 -0700
+Subject: [PATCH] Set default pjsip_cred_info.auth_algorithm to
+ PJSIP_AUTH_ALGORITHM_MD5
+
+The new algorithm_type field in the pjsip_cred_info structure wasn't being
+defaulted to PJSIP_AUTH_ALGORITHM_MD5 as it should be. As a result if the
+user specified a data_type of PJSIP_CRED_DATA_DIGEST but didn't explicitly
+set algorithm_type, it was left at PJSIP_AUTH_ALGORITHM_NOT_SET which
+will caused authentication to fail.
+
+* pjsip_cred_info.auth_algorithm is now correctly defaulted to
+PJSIP_AUTH_ALGORITHM_MD5 when supplied via the pjsip_auth_lookup_cred and
+pjsip_auth_lookup_cred2 callbacks and via the pjsip_auth_clt_set_credentials,
+and pjsip_auth_create_digest functions.
+
+* pjsip_cred_info.auth_algorithm now defaults to PJSIP_AUTH_ALGORITHM_SHA256
+for the pjsip_auth_create_digestSHA256 function.
+
+* Documentation was updated for those functions and callbacks to indicate the
+defaults.
+
+NOTE: The pjsip_auth_create_digest and pjsip_auth_create_digestSHA256
+defaults are actually set in pjsip_auth_create_digest2 because those two
+functions are now deprecated wrappers that pass cred_info (which is a const) to
+pjsip_auth_create_digest2.  The documentation for pjsip_auth_create_digest2
+however, doesn't mention defaults on purpose because it's a generic function
+that handles multiple algorithms and we want users to specifify exactly what
+algorithms they want to use to avoid ambiguity.
+
+Resolves: #4194
+---
+ pjsip/include/pjsip/sip_auth.h    | 34 ++++++++++++++++++++++++++++---
+ pjsip/src/pjsip/sip_auth_client.c | 26 +++++++++++++++--------
+ pjsip/src/pjsip/sip_auth_server.c |  9 ++++++++
+ 3 files changed, 58 insertions(+), 11 deletions(-)
+
+diff --git a/pjsip/include/pjsip/sip_auth.h b/pjsip/include/pjsip/sip_auth.h
+index 95c8d136c1..5e11664d5c 100644
+--- a/pjsip/include/pjsip/sip_auth.h
++++ b/pjsip/include/pjsip/sip_auth.h
+@@ -373,6 +373,10 @@ PJ_DECL(int) pjsip_cred_info_cmp(const pjsip_cred_info *cred1,
+ /**
+  * Type of function to lookup credential for the specified name.
+  *
++ * \note If pjsip_cred_info::data_type is set to PJSIP_CRED_DATA_DIGEST and
++ * pjsip_cred_info::algorithm_type is left unset (0), algorithm_type will
++ * default to #PJSIP_AUTH_ALGORITHM_MD5.
++ *
+  * @param pool          Pool to initialize the credential info.
+  * @param realm         Realm to find the account.
+  * @param acc_name      Account name to look for.
+@@ -406,6 +410,10 @@ typedef struct pjsip_auth_lookup_cred_param
+ /**
+  * Type of function to lookup credential for the specified name.
+  *
++ * \note If pjsip_cred_info::data_type is set to PJSIP_CRED_DATA_DIGEST and
++ * pjsip_cred_info::algorithm_type is left unset (0), algorithm_type will
++ * default to #PJSIP_AUTH_ALGORITHM_MD5.
++ *
+  * @param pool          Pool to initialize the credential info.
+  * @param param         The input param for credential lookup.
+  * @param cred_info     The structure to put the credential when it's found.
+@@ -482,6 +490,10 @@ PJ_DECL(pj_status_t) pjsip_auth_clt_clone( pj_pool_t *pool,
+  * Set the credentials to be used during the session. This will duplicate 
+  * the specified credentials using client authentication's pool.
+  *
++ * \note If pjsip_cred_info::data_type is set to PJSIP_CRED_DATA_DIGEST and
++ * pjsip_cred_info::algorithm_type is left unset (0), algorithm_type will
++ * default to #PJSIP_AUTH_ALGORITHM_MD5.
++ *
+  * @param sess          The client authentication session.
+  * @param cred_cnt      Number of credentials.
+  * @param c             Array of credentials.
+@@ -711,6 +723,9 @@ PJ_DECL(pj_status_t) pjsip_auth_srv_challenge2(pjsip_auth_srv *auth_srv,
+  * Helper function to create a digest out of the specified
+  * parameters.
+  *
++ * \deprecated Use #pjsip_auth_create_digest2 with
++ * algorithm_type = #PJSIP_AUTH_ALGORITHM_MD5.
++ *
+  * \warning Because of ambiguities in the API, this function
+  * should only be used for backward compatibility with the
+  * MD5 digest algorithm. New code should use
+@@ -719,6 +734,10 @@ PJ_DECL(pj_status_t) pjsip_auth_srv_challenge2(pjsip_auth_srv *auth_srv,
+  * pjsip_cred_info::data_type must be #PJSIP_CRED_DATA_PLAIN_PASSWD
+  * or #PJSIP_CRED_DATA_DIGEST.
+  *
++ * \note If pjsip_cred_info::data_type is set to PJSIP_CRED_DATA_DIGEST and
++ * pjsip_cred_info::algorithm_type is left unset (0), algorithm_type will
++ * default to #PJSIP_AUTH_ALGORITHM_MD5.
++ *
+  * @param result        String to store the response digest. This string
+  *                      must have been preallocated by caller with the 
+  *                      buffer at least PJSIP_MD5STRLEN (32 bytes) in size.
+@@ -746,9 +765,21 @@ PJ_DECL(pj_status_t) pjsip_auth_create_digest(pj_str_t *result,
+ /**
+  * Helper function to create SHA-256 digest out of the specified 
+  * parameters.
++ *
+  * \deprecated Use #pjsip_auth_create_digest2 with
+  * algorithm_type = #PJSIP_AUTH_ALGORITHM_SHA256.
+  *
++ * \warning Because of ambiguities in the API, this function
++ * should only be used for backward compatibility with the
++ * SHA256 digest algorithm. New code should use
++ * #pjsip_auth_create_digest2
++ *
++ * pjsip_cred_info::data_type must be #PJSIP_CRED_DATA_PLAIN_PASSWD
++ * or #PJSIP_CRED_DATA_DIGEST.
++ *
++ * \note If pjsip_cred_info::data_type is set to PJSIP_CRED_DATA_DIGEST and
++ * pjsip_cred_info::algorithm_type is left unset (0), algorithm_type will
++ * default to #PJSIP_AUTH_ALGORITHM_SHA256.
+  *
+  * @param result        String to store the response digest. This string
+  *                      must have been preallocated by caller with the 
+@@ -794,9 +825,6 @@ PJ_DECL(pj_status_t) pjsip_auth_create_digestSHA256(pj_str_t* result,
+  * pjsip_cred_info::algorithm_type MUST match the algorithm_type
+  * passed as the last parameter to this function.
+  *
+- * \note If left unset (0), pjsip_cred_info::algorithm_type will
+- * default to #PJSIP_AUTH_ALGORITHM_MD5.
+- *
+  * @param result         String to store the response digest. This string
+  *                       must have been preallocated by the caller with the
+  *                       buffer at least as large as the digest_str_length
+diff --git a/pjsip/src/pjsip/sip_auth_client.c b/pjsip/src/pjsip/sip_auth_client.c
+index 01563e4b75..989e7eaaf6 100644
+--- a/pjsip/src/pjsip/sip_auth_client.c
++++ b/pjsip/src/pjsip/sip_auth_client.c
+@@ -221,10 +221,7 @@ PJ_DEF(pj_status_t) pjsip_auth_create_digest2( pj_str_t *result,
+     PJ_ASSERT_RETURN(result && nonce && uri && realm && cred_info && method, PJ_EINVAL);
+     pj_bzero(result->ptr, result->slen);
+ 
+-    algorithm = pjsip_auth_get_algorithm_by_type(algorithm_type == PJSIP_AUTH_ALGORITHM_NOT_SET
+-            ? PJSIP_AUTH_ALGORITHM_MD5
+-            : algorithm_type);
+-
++    algorithm = pjsip_auth_get_algorithm_by_type(algorithm_type);
+     if (!algorithm) {
+         PJ_LOG(4, (THIS_FILE, "The algorithm_type is invalid"));
+         return PJ_ENOTSUP;
+@@ -263,12 +260,16 @@ PJ_DEF(pj_status_t) pjsip_auth_create_digest2( pj_str_t *result,
+     }
+ 
+     if (PJSIP_CRED_DATA_IS_DIGEST(cred_info)) {
+-        if (cred_info->algorithm_type != algorithm_type) {
++        pjsip_auth_algorithm_type cred_algorithm_type = cred_info->algorithm_type;
++
++        if (cred_algorithm_type == PJSIP_AUTH_ALGORITHM_NOT_SET) {
++            cred_algorithm_type = algorithm_type;
++        } else if (cred_algorithm_type != algorithm_type) {
+             PJ_LOG(4,(THIS_FILE,
+                     "The algorithm specified in the cred_info (%.*s) "
+                     "doesn't match the algorithm requested for hashing (%.*s)",
+-                    (int)pjsip_auth_algorithms[cred_info->algorithm_type].iana_name.slen,
+-                    pjsip_auth_algorithms[cred_info->algorithm_type].iana_name.ptr,
++                    (int)pjsip_auth_algorithms[cred_algorithm_type].iana_name.slen,
++                    pjsip_auth_algorithms[cred_algorithm_type].iana_name.ptr,
+                     (int)pjsip_auth_algorithms[algorithm_type].iana_name.slen,
+                     pjsip_auth_algorithms[algorithm_type].iana_name.ptr));
+             return PJ_EINVAL;
+@@ -917,7 +918,16 @@ PJ_DEF(pj_status_t) pjsip_auth_clt_set_credentials( pjsip_auth_clt_sess *sess,
+             pj_strdup(sess->pool, &sess->cred_info[i].realm, &c[i].realm);
+             pj_strdup(sess->pool, &sess->cred_info[i].username, &c[i].username);
+             pj_strdup(sess->pool, &sess->cred_info[i].data, &c[i].data);
+-            sess->cred_info[i].algorithm_type = c[i].algorithm_type;
++            /*
++             * If the data type is DIGEST and an auth algorithm isn't set,
++             * default it to MD5.
++             */
++            if (PJSIP_CRED_DATA_IS_DIGEST(&c[i]) &&
++                c[i].algorithm_type == PJSIP_AUTH_ALGORITHM_NOT_SET) {
++                sess->cred_info[i].algorithm_type = PJSIP_AUTH_ALGORITHM_MD5;
++            } else {
++                sess->cred_info[i].algorithm_type = c[i].algorithm_type;
++            }
+         }
+         sess->cred_cnt = cred_cnt;
+     }
+diff --git a/pjsip/src/pjsip/sip_auth_server.c b/pjsip/src/pjsip/sip_auth_server.c
+index edc3aabb41..746cba3465 100644
+--- a/pjsip/src/pjsip/sip_auth_server.c
++++ b/pjsip/src/pjsip/sip_auth_server.c
+@@ -248,6 +248,15 @@ PJ_DEF(pj_status_t) pjsip_auth_srv_verify( pjsip_auth_srv *auth_srv,
+         }
+     }
+ 
++    /*
++     * If the data type is DIGEST and an auth algorithm isn't set,
++     * default it to MD5.
++     */
++    if (PJSIP_CRED_DATA_IS_DIGEST(&cred_info) &&
++        cred_info.algorithm_type == PJSIP_AUTH_ALGORITHM_NOT_SET) {
++        cred_info.algorithm_type = PJSIP_AUTH_ALGORITHM_MD5;
++    }
++
+     /* Authenticate with the specified credential. */
+     status = pjsip_auth_verify(h_auth, &msg->line.req.method.name, 
+                                &cred_info);
